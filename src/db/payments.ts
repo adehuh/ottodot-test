@@ -42,3 +42,27 @@ export async function listPaymentAttempts(
   );
   return rows;
 }
+
+/**
+ * One row per attempt, updated as the attempt resolves. Inserting the
+ * AUTHORIZED row before the confirm transaction means the record exists even
+ * if the process dies mid-flight, which is what makes reconciliation possible
+ * at all.
+ */
+export async function updatePaymentAttemptStatus(
+  db: Queryable,
+  id: string,
+  status: PaymentStatus,
+  providerRef: string | null,
+): Promise<PaymentAttemptRow | null> {
+  const { rows } = await db.query<PaymentAttemptRow>(
+    `update payment_attempts
+        set status = $2,
+            provider_ref = coalesce($3, provider_ref),
+            updated_at = now()
+      where id = $1
+      returning *`,
+    [id, status, providerRef],
+  );
+  return rows[0] ?? null;
+}
