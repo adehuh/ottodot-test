@@ -127,7 +127,7 @@ This is the gate the submission is graded on.
 
 ## Phase 3 — API surface
 
-- [ ] **T12 · Server actions + roster route handler** — M · deps: T9
+- [x] **T12 · Server actions + roster route handler** — M · deps: T9
   - `app/actions.ts`: `listTrialClasses` · `createBooking` · `confirmBooking` · `getBooking`, Zod at
     the boundary, UUIDs validated before touching SQL. `GET /api/roster/[classId]` read-only.
   - AC (A4, A5): handlers hold no business logic, route handler under ~30 lines (R1.3) · errors are
@@ -135,14 +135,14 @@ This is the gate the submission is graded on.
     forced (`pg` cannot run on edge).
   - Verify: `npm run test:int` route test
 
-- [ ] **T13 · `POST /api/dev/reset`** — S · deps: T4, T12
+- [x] **T13 · `POST /api/dev/reset`** — S · deps: T4, T12
   - Calls the **same** `seed()` as the tests (R2.3).
   - AC: 404 when `NODE_ENV === 'production'`, asserted by test (R4.5) · reset restores the exact seed
     state including ids.
   - Verify: `npm run test:int`
 
 ### ══ Checkpoint C ══
-- [ ] `npm run verify` green · A1–A5 all satisfied · handlers thin, layer lint rule green
+- [x] `npm run verify` green · A1–A5 all satisfied · handlers thin, layer lint rule green
 
 ---
 
@@ -150,31 +150,34 @@ This is the gate the submission is graded on.
 
 If this phase exceeds 45 minutes total, **stop and report**. Ship unstyled.
 
-- [ ] **T14 · `/book` — pick child and class** — S · deps: T12
+- [x] **T14 · `/book` — pick child and class** — S · deps: T12
   - `StepHeader`, `ChildPicker`, `ClassList`/`ClassRow`, `BookingSummary`. Real `<fieldset>` +
     `<input type="radio">`, not clickable divs. Disabled rows carry the reason in the label text;
     "1 seat left" / "FULL" carry meaning in words, never colour alone.
 
-- [ ] **T15 · `/pay/[bookingId]` and `/status/[bookingId]`** — S · deps: T12
+- [x] **T15 · `/pay/[bookingId]` and `/status/[bookingId]`** — S · deps: T12
   - `PaymentPanel` (Pay + Simulate decline, both disable on submit). `ResultCard` is **one**
     component driven by a `code → {icon, tone, title, body, actions}` map. `src/ui/labels.ts` holds
     an exhaustive `Record<BookingStatus, string>`. A network or 5xx failure renders "we're still
     confirming — do not pay again" and polls; it **never** renders the declined card (R4.3).
 
-- [ ] **T16 · `/roster/[classId]` — admin roster** — S · deps: T12
+- [x] **T16 · `/roster/[classId]` — admin roster** — S · deps: T12
   - `RosterTable`/`RosterRow`. Count reflects `CONFIRMED` only.
 
 **AC, all three**
-- [ ] No invariant lives in React state — deleting every frontend check changes nothing the system permits
-- [ ] Loading, empty and error states on every list
-- [ ] Result region `role="status" aria-live="polite"`; focus rings visible
-- [ ] No raw enum code rendered as copy; no `toLowerCase()` / `replace('_',' ')` to derive prose
-- [ ] Stock Tailwind only — no config extension, no plugins, no icon packages
+- [x] No invariant lives in React state — deleting every frontend check changes nothing the system permits
+- [x] Loading, empty and error states on every list
+- [x] Result region `role="status" aria-live="polite"`; focus rings visible
+- [x] No raw enum code rendered as copy; no `toLowerCase()` / `replace('_',' ')` to derive prose
+- [x] Stock Tailwind only — no config extension, no plugins, no icon packages
 
 ### ══ Checkpoint D ══
-- [ ] Manual walkthrough: happy path → forced decline with roster unchanged → full class rejected →
-      duplicate rejected
-- [ ] `npm run verify` green
+- [x] Browser walkthrough: happy path → forced decline with the roster provably unchanged at 3 of 4 →
+      retry after decline creating a fresh booking → roster 4 of 4 → full class not selectable →
+      duplicate rejected. Console clean.
+- [x] Claude Design system applied; three design elements deliberately dropped as out of scope
+      (refund, hold expiry sweeper, multi-class admin table) — see the commit and README
+- [x] `npm run verify` green
 
 ---
 
