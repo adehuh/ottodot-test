@@ -226,3 +226,9 @@ export async function confirmBooking(
       return err('NOT_FOUND');
   }
 }
+
+export async function getBooking(pool: Pool, bookingId: string): Promise<Result<BookingView>> {
+  const booking = await findBooking(pool, bookingId);
+  if (!booking) return err('NOT_FOUND');
+  return ok(toBookingView(booking));
+}
