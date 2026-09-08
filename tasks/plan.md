@@ -152,6 +152,10 @@ parents, three students, and the four class states from SPEC §9 plus the duplic
 **Deps** — T3 · **Size** — S
 
 ### T5 · `src/db` infrastructure — pool, error mapping, transaction helper
+
+> **Deviation:** `withTransaction` landed in `src/services/tx.ts`, not `src/db/tx.ts`. R1.2 forbids
+> `BEGIN`/`COMMIT` outside `src/services/` and the DoD greps for exactly that, so the helper belongs
+> with the layer that owns transactions.
 `pg.Pool` singleton on `globalThis` with small `max` (R5.3), never `name:` on a query (R5.2).
 `errors.ts` is the **only** file that knows `23505` (R4.6). `withTransaction` checks out one client
 and releases it in `finally` (R5.4).
