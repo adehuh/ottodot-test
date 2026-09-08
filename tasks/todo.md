@@ -183,22 +183,32 @@ If this phase exceeds 45 minutes total, **stop and report**. Ship unstyled.
 
 ## Phase 5 — Documentation
 
-- [ ] **T17 · `README.md`** — written against `.claude/README_STYLE.md`
-  - [ ] How to run, ≤5 commands, first section
-  - [ ] **The last-seat race second**, not buried — mechanism, the two SQL fragments, the R3.5
+- [x] **T17 · `README.md`** — written against `.claude/README_STYLE.md`
+  - [x] How to run, ≤5 commands, first section
+  - [x] **The last-seat race second**, not buried — mechanism, the two SQL fragments, the R3.5
         alternatives table, and the accepted tradeoff stated plainly
-  - [ ] Schema · endpoints · statuses · duplicate prevention · payment failure · where each check
+  - [x] Schema · endpoints · statuses · duplicate prevention · payment failure · where each check
         lives (UI / backend / database / **background job: deliberately none**, with the reason)
-  - [ ] Concrete monitoring: `count(bookings WHERE status='CONFIRMED') > capacity` for any class —
+  - [x] Concrete monitoring: `count(bookings WHERE status='CONFIRMED') > capacity` for any class —
         must be zero, page immediately
-  - [ ] Every Tier 3 cut, one sentence each — **including deploy**, cut to protect the graded core
-  - [ ] The three deviations recorded: `failPayment` folded into `confirmBooking`; deploy cut;
+  - [x] Every Tier 3 cut, one sentence each — **including deploy**, cut to protect the graded core
+  - [x] The three deviations recorded: `failPayment` folded into `confirmBooking`; deploy cut;
         capture occurs after `COMMIT`, leaving a confirmed-but-uncaptured gap a reconciliation job
         would close
-  - [ ] The Checkpoint B invariant-removal results and the 20-run race result
+  - [x] The Checkpoint B invariant-removal results and the 20-run race result
 
-- [ ] **T18 · `AI_USAGE.md`** — all required points, including one specific **diff-level** instance
+- [x] **T18 · `AI_USAGE.md`** — all required points, including one specific **diff-level** instance
       where AI output was rejected
 
 ### ══ Checkpoint E — Definition of Done ══
-- [ ] Run the full `.claude/RULES.md` Definition of Done checklist. Every unchecked box is a defect.
+- [x] Run the full `.claude/RULES.md` Definition of Done checklist:
+  - [x] `npm run db:reset && npm run verify` green from clean — 31 unit, 94 integration
+  - [x] Race test **20/20** consecutive (re-run after the design pass)
+  - [x] Removing `FOR UPDATE` or either index turns the suite red — recorded in the README
+  - [x] grep: no read-then-write capacity check, no counter column, no seat cache
+  - [x] grep: no `BEGIN`/`COMMIT` outside `src/services/`, no SQL outside `src/db/`
+  - [x] grep: capture happens after the transaction closes; no refund path
+  - [x] grep: no `eslint-disable`, no `@ts-ignore`, no `.skip`
+  - [x] Three-way re-read branch present, each branch tested
+  - [x] Every Tier 3 cut named in the README; all deviations recorded
+  - [ ] **Video not recorded** — outside the engineering scope, left for the user
