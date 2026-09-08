@@ -273,6 +273,43 @@ describe('confirmBooking', () => {
       expect(result).toEqual({ ok: false, code: 'BOOKING_NOT_ACTIVE' });
     });
 
+    it('voids its own authorization when it loses a concurrent confirm of the same booking', async () => {
+      const pending = await insertPendingBooking(
+        db.pool,
+        SEED_IDS.students.arun,
+        SEED_IDS.classes.fractions,
+      );
+
+      /*
+       * The sequential retry cannot reach the in-transaction re-read: the
+       * advisory pre-check sees CONFIRMED and returns before opening a
+       * transaction. Only two genuinely concurrent confirms of the SAME
+       * booking get both callers past the pre-check, so both authorize and
+       * only one can win.
+       */
+      const [first, second] = await Promise.all([
+        confirmBooking(db.pool, { bookingId: pending.id, simulate: 'SLOW' }),
+        confirmBooking(db.pool, { bookingId: pending.id, simulate: 'SLOW' }),
+      ]);
+
+      const outcomes = [first, second];
+      expect(outcomes.filter((r) => r.ok)).toHaveLength(1);
+      expect(outcomes.filter((r) => !r.ok && r.code === 'ALREADY_CONFIRMED')).toHaveLength(1);
+
+      // Two authorizations were taken and only one seat was won. The loser's
+      // hold is this call's own authorization - not the winner's - so leaving
+      // it live strands money on a card for nothing.
+      const attempts = await listPaymentAttempts(db.pool, pending.id);
+      expect(attempts).toHaveLength(2);
+      expect(attempts.filter((a) => a.status === 'CAPTURED')).toHaveLength(1);
+      expect(attempts.filter((a) => a.status === 'VOIDED')).toHaveLength(1);
+      expect(attempts.filter((a) => a.status === 'AUTHORIZED')).toHaveLength(0);
+
+      for (const attempt of attempts) {
+        expect(getAuthorization(attempt.provider_ref ?? '')?.status).toBe(attempt.status);
+      }
+    });
+
     it('takes no authorization at all for a booking that is not pending', async () => {
       const pending = await insertPendingBooking(
         db.pool,

@@ -62,8 +62,10 @@ transaction and the outcome branches three ways:
 | `PENDING_PAYMENT`, count ≥ capacity | `SEAT_TAKEN` | the authorisation is voided |
 | `CANCELLED` / `PAYMENT_FAILED` | `BOOKING_NOT_ACTIVE` | nothing — stale client |
 
-Collapsing those into one branch voids the authorisation of a parent who is already confirmed. Each
-branch has its own test.
+The three *result codes* stay distinct — a parent who is already confirmed must not be told they
+lost the seat. The *release* is uniform: after a successful authorisation, every exit path either
+captures or voids, written once rather than once per branch, so a branch added later cannot leak a
+hold. Each branch has its own test.
 
 ### Considered and rejected
 
@@ -285,6 +287,14 @@ real, and deploy was cut to protect the verification work.
 - One Postgres primary. The design relies on row locks being meaningful, which they are on a single
   primary and would not be across a multi-writer topology.
 - Timestamps are rendered in one fixed locale (Asia/Singapore).
+- **A rule I wrote was wrong, and the code that followed it leaked money.** My own
+  `.claude/RULES.md` R2 said that on `ALREADY_CONFIRMED` and `BOOKING_NOT_ACTIVE` the confirm path
+  should "do nothing", reasoning that the capture had already happened. It had not. `capture()` runs
+  only in the won-seat arm of the *same* invocation, so the authorization in hand on those branches
+  is the one that call created moments earlier — the confirmed parent's captured payment belongs to
+  a different concurrent call and is never in scope. Following the rule left a live hold on a card
+  that nothing would release. The rule is corrected in place with a dated note, and the release now
+  happens once for any outcome that is not a won seat, so a branch added later cannot leak.
 
 ## What I deliberately cut
 

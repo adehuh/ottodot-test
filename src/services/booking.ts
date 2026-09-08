@@ -187,36 +187,44 @@ export async function confirmBooking(
     return { kind: 'BOOKING_NOT_ACTIVE' };
   });
 
-  switch (decision.kind) {
-    case 'WON': {
-      // The seat is secured and committed. Only now does money move.
-      await capture(authorization.authorizationId);
-      // provider_ref stays the authorization id through every state. That is
-      // the identifier a real gateway keeps stable across authorize, capture
-      // and void, so it is the one worth storing for reconciliation.
-      await updatePaymentAttemptStatus(
-        pool,
-        attempt.id,
-        'CAPTURED',
-        authorization.authorizationId,
-      );
-      return ok(toBookingView(decision.booking));
-    }
+  if (decision.kind === 'WON') {
+    // The seat is secured and committed. Only now does money move.
+    await capture(authorization.authorizationId);
+    // provider_ref stays the authorization id through every state. That is
+    // the identifier a real gateway keeps stable across authorize, capture
+    // and void, so it is the one worth storing for reconciliation.
+    await updatePaymentAttemptStatus(pool, attempt.id, 'CAPTURED', authorization.authorizationId);
+    return ok(toBookingView(decision.booking));
+  }
 
-    case 'SEAT_TAKEN': {
-      // Void first, then record the loss. If the void fails the booking stays
+  /*
+   * Every other outcome releases the authorization, in one place rather than
+   * once per branch.
+   *
+   * The invariant is: after a successful authorize(), this function either
+   * captures or voids. There is no third option. Written per-branch it held
+   * only by inspection, and a branch added later would silently leak a hold;
+   * written here it holds structurally, because the sole way to keep money
+   * held is to have returned from the WON arm above.
+   *
+   * This includes ALREADY_CONFIRMED. The authorization being released is the
+   * one THIS call created moments ago - capture() only runs in the WON arm of
+   * the same call, so the confirmed parent's captured payment belongs to a
+   * different, concurrent invocation and is untouched here. What is voided is
+   * a hold nobody will ever use.
+   */
+  await voidAuthorization(authorization.authorizationId);
+  await updatePaymentAttemptStatus(pool, attempt.id, 'VOIDED', authorization.authorizationId);
+
+  switch (decision.kind) {
+    case 'SEAT_TAKEN':
+      // Recorded after the void: if the void fails the booking stays
       // PENDING_PAYMENT and the parent can retry, which beats a cancelled
       // booking with a live authorization behind it.
-      await voidAuthorization(authorization.authorizationId);
-      await updatePaymentAttemptStatus(pool, attempt.id, 'VOIDED', authorization.authorizationId);
       await cancelBooking(pool, booking.id, 'SEAT_TAKEN');
       return err('SEAT_TAKEN');
-    }
 
     case 'ALREADY_CONFIRMED':
-      // Deliberately reverses nothing (R3.2). The parent has a seat and has
-      // paid for it; voiding here is the exact failure the three-way branch
-      // exists to prevent.
       return err('ALREADY_CONFIRMED');
 
     case 'BOOKING_NOT_ACTIVE':

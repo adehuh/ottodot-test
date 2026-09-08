@@ -60,12 +60,25 @@ transaction and branch:
 
 | Re-read shows | Return | Then |
 |---|---|---|
-| `CONFIRMED` | `ALREADY_CONFIRMED` (success) | capture already happened — do nothing |
-| `PENDING_PAYMENT` and count ≥ capacity | `SEAT_TAKEN` | void the authorization |
-| `CANCELLED` / `PAYMENT_FAILED` | `BOOKING_NOT_ACTIVE` | stale client — do nothing |
+| `CONFIRMED` | `ALREADY_CONFIRMED` (success) | void this call's authorization |
+| `PENDING_PAYMENT` and count ≥ capacity | `SEAT_TAKEN` | void, then `CANCELLED` with the reason |
+| `CANCELLED` / `PAYMENT_FAILED` | `BOOKING_NOT_ACTIVE` | void this call's authorization |
 
-**STOP and ask** if you are about to collapse those three into one branch. Doing so voids the
-authorization of a parent who is already confirmed.
+**The three *result codes* stay distinct. The *release* is uniform.** After a successful
+`authorize()`, every exit path either captures or voids — there is no third option. Write the void
+once, on any outcome that is not a won seat, so a branch added later cannot leak a hold. Writing it
+per-branch makes the invariant hold only by inspection.
+
+**Corrected 2026-09-08.** This rule previously said `ALREADY_CONFIRMED` and `BOOKING_NOT_ACTIVE`
+should "do nothing", on the reasoning that capture had already happened. That reasoning was wrong
+and it leaked money. `capture()` runs only in the won-seat arm of the *same* invocation, so the
+authorization in hand on those branches is the one this call created moments earlier — never the
+confirmed parent's captured payment, which belongs to a different concurrent call and is untouched.
+Returning without voiding left a live hold on a card that nothing would ever release.
+
+**STOP and ask** if you are about to collapse the three *result codes* into one. A parent who is
+already confirmed must not be told they lost the seat, and a stale client must not be told the class
+is full.
 
 ---
 
@@ -79,8 +92,11 @@ authorize(amount)            before the transaction, no lock held
        ▼
   confirm transaction (R2)    the only critical section
        ├─ seat won  ────────▶ capture(authId)  → CONFIRMED
-       └─ SEAT_TAKEN ───────▶ void(authId)     → CANCELLED, reason SEAT_TAKEN
+       └─ any other outcome ▶ void(authId)     → SEAT_TAKEN also writes
+                                                  CANCELLED, reason SEAT_TAKEN
 ```
+
+Capture or void. There is no path from a successful `authorize()` that does neither.
 
 Money is **never captured** for a seat the child did not get. There is no refund path in this
 codebase and there must not be one.
