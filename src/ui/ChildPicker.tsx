@@ -1,9 +1,10 @@
 import type { StudentView } from '@/src/domain/dto';
 
 /**
- * A real fieldset and real radios (R7.5), not clickable divs. Keyboard
- * selection, screen reader grouping and form semantics all come free, and
- * none of them would if this were a list of divs with onClick.
+ * A real fieldset and real radios (R7.5), not clickable divs. The input is
+ * visually hidden rather than removed, so keyboard selection, screen-reader
+ * grouping and form semantics all still work - none of which would survive a
+ * list of divs with onClick.
  */
 export function ChildPicker({
   children,
@@ -16,33 +17,42 @@ export function ChildPicker({
   onSelect: (id: string) => void;
   disabled: boolean;
 }) {
-  if (children.length === 0) {
-    return <p className="text-sm text-slate-600">No children on this account yet.</p>;
-  }
-
   return (
     <fieldset disabled={disabled} className="disabled:opacity-60">
-      <legend className="mb-2 text-sm font-medium text-slate-900">Which child?</legend>
-      <div className="space-y-2">
-        {children.map((child) => (
-          <label
-            key={child.id}
-            className="flex cursor-pointer items-center gap-3 rounded border border-slate-300 bg-white p-3 hover:border-slate-400 has-checked:border-blue-600 has-checked:ring-1 has-checked:ring-blue-600"
-          >
-            <input
-              type="radio"
-              name="studentId"
-              value={child.id}
-              checked={selectedId === child.id}
-              onChange={() => onSelect(child.id)}
-              className="h-4 w-4"
-            />
-            <span className="text-sm text-slate-900">
-              {child.name} <span className="text-slate-500">· {child.gradeLevel}</span>
-            </span>
-          </label>
-        ))}
-      </div>
+      <legend className="mb-2.5 text-sm font-semibold text-slate-900">Who is this for?</legend>
+
+      {children.length === 0 ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+          No children on this account yet.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          {children.map((child) => {
+            const selected = selectedId === child.id;
+            return (
+              <label
+                key={child.id}
+                className={`min-h-[44px] cursor-pointer rounded-xl border-2 p-3.5 text-left focus-within:ring-2 focus-within:ring-teal-600 focus-within:ring-offset-2 ${
+                  selected
+                    ? 'border-teal-600 bg-teal-50'
+                    : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="studentId"
+                  value={child.id}
+                  checked={selected}
+                  onChange={() => onSelect(child.id)}
+                  className="sr-only"
+                />
+                <span className="block text-sm font-semibold text-slate-900">{child.name}</span>
+                <span className="block text-[13px] text-slate-500">{child.gradeLevel}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
     </fieldset>
   );
 }

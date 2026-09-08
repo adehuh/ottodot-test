@@ -8,7 +8,7 @@ import type { ResultCode } from '@/src/domain/result';
 import { ChildPicker } from '@/src/ui/ChildPicker';
 import { ClassList } from '@/src/ui/ClassList';
 import { BookingSummary } from '@/src/ui/BookingSummary';
-import { ResultCard } from '@/src/ui/ResultCard';
+import { ResultCard, type ResultCardCode } from '@/src/ui/ResultCard';
 import { createBookingAction } from '@/app/actions';
 
 export function BookingForm({
@@ -24,7 +24,7 @@ export function BookingForm({
   const [pending, startTransition] = useTransition();
   const [studentId, setStudentId] = useState<string | null>(null);
   const [trialClassId, setTrialClassId] = useState<string | null>(null);
-  const [errorCode, setErrorCode] = useState<ResultCode | 'UNKNOWN' | null>(null);
+  const [errorCode, setErrorCode] = useState<ResultCode | ResultCardCode | null>(null);
 
   const selectedChild = childrenList.find((c) => c.id === studentId) ?? null;
   const selectedClass = classes.find((c) => c.id === trialClassId) ?? null;
@@ -43,8 +43,9 @@ export function BookingForm({
         }
         setErrorCode(result.code);
       } catch {
-        // A transport failure is not a business outcome (R4.3).
-        setErrorCode('UNKNOWN');
+        // A transport failure is not a business outcome (R4.3). Nothing was
+        // charged and no booking was created, so say exactly that.
+        setErrorCode('UNREACHABLE');
       }
     });
   }
@@ -65,19 +66,34 @@ export function BookingForm({
         disabled={pending}
       />
 
-      <BookingSummary child={selectedChild} trialClass={selectedClass} priceLabel={priceLabel} />
+      <BookingSummary
+        childName={selectedChild?.name ?? null}
+        trialClass={selectedClass}
+        priceLabel={priceLabel}
+      />
 
-      <button
-        type="button"
-        onClick={submit}
-        disabled={!ready}
-        aria-busy={pending}
-        className="w-full rounded bg-blue-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:bg-slate-400"
-      >
-        {pending ? 'Reserving…' : 'Continue to payment'}
-      </button>
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!ready}
+          aria-busy={pending}
+          /* The accessible name stays "Book trial class" while the visible
+             text changes (R7.5). A name that changes mid-submit re-announces
+             the button as if it were a different control. */
+          aria-label="Book trial class"
+          className="min-h-[44px] w-full rounded-lg bg-teal-600 px-5 py-3 text-[15px] font-semibold text-white hover:bg-teal-700 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 disabled:bg-slate-200 disabled:text-slate-400"
+        >
+          {pending ? 'Creating booking…' : 'Book trial class'}
+        </button>
+        <p className="text-[13px] text-slate-500">
+          {ready || pending
+            ? "Selecting a class doesn't reserve the seat. Availability can change until payment is confirmed."
+            : 'Choose a child and a class to continue.'}
+        </p>
+      </div>
 
-      {errorCode ? <ResultCard code={errorCode} /> : null}
+      {errorCode ? <ResultCard code={errorCode as ResultCardCode} /> : null}
     </div>
   );
 }

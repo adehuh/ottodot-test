@@ -42,22 +42,23 @@ export default async function StatusPage({
   const booking = result.value;
 
   return (
-    <main className="mx-auto max-w-xl space-y-6 p-6">
-      <StepHeader step={3} of={3} title="Booking status" />
+    <main className="mx-auto max-w-xl space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white px-7 pt-7 pb-1 shadow-sm">
+        <StepHeader current={3} title="Booking status" />
+      </div>
 
       <ResultCard
         code={cardCodeFor(booking)}
         bookingStatusLabel={BOOKING_STATUS_LABEL[booking.status]}
+        bookingId={booking.id}
       >
         {booking.status === 'CONFIRMED' ? (
-          <p className="mt-3">
-            <Link
-              href={`/roster/${booking.trialClassId}`}
-              className="text-sm font-medium text-blue-700 underline"
-            >
-              View the class roster
-            </Link>
-          </p>
+          <Link
+            href={`/roster/${booking.trialClassId}`}
+            className="text-sm font-semibold text-teal-700 underline hover:text-teal-800"
+          >
+            View the class roster
+          </Link>
         ) : null}
       </ResultCard>
     </main>

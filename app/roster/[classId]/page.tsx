@@ -15,7 +15,7 @@ export default async function RosterPage({ params }: { params: Promise<{ classId
   if (!result.ok) notFound();
 
   return (
-    <main className="mx-auto max-w-2xl p-6">
+    <main className="mx-auto max-w-5xl">
       <RosterTable roster={result.value} />
     </main>
   );
