@@ -372,6 +372,39 @@ describe('confirmBooking', () => {
       await expectNoLiveAuthorization(pending.id);
     });
 
+    it('releases the hold when the confirm transaction throws', async () => {
+      const pending = await insertPendingBooking(
+        db.pool,
+        SEED_IDS.students.arun,
+        SEED_IDS.classes.fractions,
+      );
+
+      /*
+       * Hold the class row so the confirm transaction cannot take its lock.
+       * lock_timeout fires and withTransaction throws 55P03 - a fault, not an
+       * outcome. Every `return` path releases the authorization, but a throw
+       * is not a return, so the uniform void below the WON arm never runs and
+       * the hold survives on the card with nothing to release it.
+       */
+      const holder = await db.pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query(`select id from trial_classes where id = $1 for update`, [
+          SEED_IDS.classes.fractions,
+        ]);
+
+        await expect(
+          confirmBooking(db.pool, { bookingId: pending.id, simulate: 'SUCCESS' }),
+        ).rejects.toMatchObject({ code: '55P03' });
+      } finally {
+        await holder.query('ROLLBACK');
+        holder.release();
+      }
+
+      // The fault propagates - but the money does not stay held.
+      await expectNoLiveAuthorization(pending.id);
+    });
+
     it('takes no authorization at all for a booking that is not pending', async () => {
       const pending = await insertPendingBooking(
         db.pool,

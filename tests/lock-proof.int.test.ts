@@ -139,6 +139,10 @@ describe('the FOR UPDATE lock is load-bearing', () => {
   it('OVERBOOKS a four-seat class without the lock', async () => {
     const { classId, bookingIds } = await fourSeatClassWithContenders(8);
 
+    // Every waiter holds a checked-out client while blocked, so the contender
+    // count must stay under the pool's max (12 in the test harness). Raising it
+    // past that deadlocks until the test timeout instead of failing usefully.
+    expect(bookingIds.length).toBeLessThan(12);
     const barrier = createBarrier(bookingIds.length);
     const results = await Promise.all(
       bookingIds.map((bookingId) => confirmWithoutLock(db.pool, bookingId, barrier)),

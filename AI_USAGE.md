@@ -40,8 +40,7 @@ lock-disabled proof were written and passing against the service layer before a 
 existed. That ordering meant the agent could not quietly satisfy a test by changing the test,
 because the tests *were* the deliverable and there was no HTTP layer to hide behind yet.
 
-**One commit per task.** Twenty code commits, each leaving `npm run verify` green, each a clean
-rollback point. When something was wrong I could see exactly which slice introduced it.
+**One commit per task.** Every commit leaves `npm run verify` green and is a clean rollback point. When something was wrong I could see exactly which slice introduced it.
 
 ## Decisions I made, not the model
 
@@ -171,8 +170,8 @@ assertion about something a human would not think to check disagreed.
 
 Nothing here trusts the agent's report of its own work. Each item is a command whose output I read.
 
-**The gate, on every commit.** `npm run verify` — typecheck, `eslint --max-warnings 0`, 31 unit
-tests, 96 integration tests against real Postgres — green on all twenty code commits. Integration
+**The gate, on every commit.** `npm run verify` — typecheck, `eslint --max-warnings 0`, the unit
+suite and the integration suite against real Postgres — green on every commit. Integration
 tests never mock the database; a mock cannot exhibit write skew, so a mocked race test proves
 nothing.
 

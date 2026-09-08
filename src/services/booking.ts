@@ -143,95 +143,123 @@ export async function confirmBooking(
     return err('PAYMENT_FAILED');
   }
 
-  const attempt = await insertPaymentAttempt(pool, {
-    bookingId: booking.id,
-    amountCents: TRIAL_PRICE_CENTS,
-    currency: TRIAL_CURRENCY,
-    status: 'AUTHORIZED',
-    providerRef: authorization.authorizationId,
-  });
+  /*
+   * A hold now exists on the card. From here every exit - return OR throw -
+   * must either capture it or release it.
+   *
+   * The earlier version put the uniform void below the WON early return, which
+   * covered every `return` but not a `throw`. That was fine while nothing in
+   * this region could throw; adding lock_timeout gave it a 55P03 to throw, and
+   * the hold survived with nothing to release it. Structural for returns is
+   * not structural.
+   *
+   * `captured` guards the release: voiding a captured authorization is the
+   * refund path R3 forbids, and the gateway throws if asked - which would mask
+   * the original fault with a confusing one.
+   */
+  let attempt: Awaited<ReturnType<typeof insertPaymentAttempt>> | null = null;
+  let captured = false;
 
-  const decision = await withTransaction(pool, async (client): Promise<SeatDecision> => {
-    // Serialises every confirm for this class. Without it two concurrent
-    // confirms touch different booking rows, never block, each evaluates the
-    // count against its own snapshot, and both commit (R3.1).
-    const trialClass = await lockClassForUpdate(client, booking.trial_class_id);
-    if (!trialClass) return { kind: 'NOT_FOUND' };
+  try {
+    attempt = await insertPaymentAttempt(pool, {
+      bookingId: booking.id,
+      amountCents: TRIAL_PRICE_CENTS,
+      currency: TRIAL_CURRENCY,
+      status: 'AUTHORIZED',
+      providerRef: authorization.authorizationId,
+    });
 
-    const confirmed = await confirmBookingUnderLock(client, booking.id, trialClass.capacity);
-    if (confirmed) return { kind: 'WON', booking: confirmed };
+    const decision = await withTransaction(pool, async (client): Promise<SeatDecision> => {
+      // Serialises every confirm for this class. Without it two concurrent
+      // confirms touch different booking rows, never block, each evaluates the
+      // count against its own snapshot, and both commit (R3.1).
+      const trialClass = await lockClassForUpdate(client, booking.trial_class_id);
+      if (!trialClass) return { kind: 'NOT_FOUND' };
 
-    /*
-     * Zero rows updated is NOT automatically SEAT_TAKEN (R3.2). Re-read the
-     * booking inside this same transaction and branch on what it actually
-     * says. Collapsing these into one branch voids the authorization of a
-     * parent who is already confirmed - the bug this suite exists to catch.
-     */
-    const reread = await findBooking(client, booking.id);
-    if (!reread) return { kind: 'NOT_FOUND' };
+      const confirmed = await confirmBookingUnderLock(client, booking.id, trialClass.capacity);
+      if (confirmed) return { kind: 'WON', booking: confirmed };
 
-    if (reread.status === 'CONFIRMED') return { kind: 'ALREADY_CONFIRMED' };
+      /*
+       * Zero rows updated is NOT automatically SEAT_TAKEN (R3.2). Re-read the
+       * booking inside this same transaction and branch on what it actually
+       * says. The three result codes stay distinct; only the release is
+       * uniform.
+       */
+      const reread = await findBooking(client, booking.id);
+      if (!reread) return { kind: 'NOT_FOUND' };
 
-    if (reread.status === 'PENDING_PAYMENT') {
-      const confirmedCount = await countConfirmed(client, reread.trial_class_id);
-      if (confirmedCount >= trialClass.capacity) return { kind: 'SEAT_TAKEN' };
+      if (reread.status === 'CONFIRMED') return { kind: 'ALREADY_CONFIRMED' };
 
-      // Still pending with a seat free means the guarded UPDATE should have
-      // matched. Under the class lock nobody else can have changed the count,
-      // so this is a bug in the statement, not an outcome for the parent.
-      throw new Error(
-        `confirm matched no rows while a seat was free: booking ${reread.id}`,
-      );
+      if (reread.status === 'PENDING_PAYMENT') {
+        const confirmedCount = await countConfirmed(client, reread.trial_class_id);
+        if (confirmedCount >= trialClass.capacity) return { kind: 'SEAT_TAKEN' };
+
+        // Still pending with a seat free means the guarded UPDATE should have
+        // matched. Under the class lock nobody else can have changed the
+        // count, so this is a bug in the statement, not an outcome.
+        throw new Error(`confirm matched no rows while a seat was free: booking ${reread.id}`);
+      }
+
+      return { kind: 'BOOKING_NOT_ACTIVE' };
+    });
+
+    if (decision.kind === 'WON') {
+      // The seat is secured and committed. Only now does money move.
+      await capture(authorization.authorizationId);
+      captured = true;
+      // provider_ref stays the authorization id through every state. That is
+      // the identifier a real gateway keeps stable across authorize, capture
+      // and void, so it is the one worth storing for reconciliation.
+      await updatePaymentAttemptStatus(pool, attempt.id, 'CAPTURED', authorization.authorizationId);
+      return ok(toBookingView(decision.booking));
     }
 
-    return { kind: 'BOOKING_NOT_ACTIVE' };
-  });
+    await voidAuthorization(authorization.authorizationId);
+    await updatePaymentAttemptStatus(pool, attempt.id, 'VOIDED', authorization.authorizationId);
 
-  if (decision.kind === 'WON') {
-    // The seat is secured and committed. Only now does money move.
-    await capture(authorization.authorizationId);
-    // provider_ref stays the authorization id through every state. That is
-    // the identifier a real gateway keeps stable across authorize, capture
-    // and void, so it is the one worth storing for reconciliation.
-    await updatePaymentAttemptStatus(pool, attempt.id, 'CAPTURED', authorization.authorizationId);
-    return ok(toBookingView(decision.booking));
-  }
+    switch (decision.kind) {
+      case 'SEAT_TAKEN':
+        // Recorded after the void: if the void fails the booking stays
+        // PENDING_PAYMENT and the parent can retry, which beats a cancelled
+        // booking with a live authorization behind it.
+        await cancelBooking(pool, booking.id, 'SEAT_TAKEN');
+        return err('SEAT_TAKEN');
 
-  /*
-   * Every other outcome releases the authorization, in one place rather than
-   * once per branch.
-   *
-   * The invariant is: after a successful authorize(), this function either
-   * captures or voids. There is no third option. Written per-branch it held
-   * only by inspection, and a branch added later would silently leak a hold;
-   * written here it holds structurally, because the sole way to keep money
-   * held is to have returned from the WON arm above.
-   *
-   * This includes ALREADY_CONFIRMED. The authorization being released is the
-   * one THIS call created moments ago - capture() only runs in the WON arm of
-   * the same call, so the confirmed parent's captured payment belongs to a
-   * different, concurrent invocation and is untouched here. What is voided is
-   * a hold nobody will ever use.
-   */
-  await voidAuthorization(authorization.authorizationId);
-  await updatePaymentAttemptStatus(pool, attempt.id, 'VOIDED', authorization.authorizationId);
+      case 'ALREADY_CONFIRMED':
+        return err('ALREADY_CONFIRMED');
 
-  switch (decision.kind) {
-    case 'SEAT_TAKEN':
-      // Recorded after the void: if the void fails the booking stays
-      // PENDING_PAYMENT and the parent can retry, which beats a cancelled
-      // booking with a live authorization behind it.
-      await cancelBooking(pool, booking.id, 'SEAT_TAKEN');
-      return err('SEAT_TAKEN');
+      case 'BOOKING_NOT_ACTIVE':
+        return err('BOOKING_NOT_ACTIVE');
 
-    case 'ALREADY_CONFIRMED':
-      return err('ALREADY_CONFIRMED');
-
-    case 'BOOKING_NOT_ACTIVE':
-      return err('BOOKING_NOT_ACTIVE');
-
-    case 'NOT_FOUND':
-      return err('NOT_FOUND');
+      case 'NOT_FOUND':
+        return err('NOT_FOUND');
+    }
+  } catch (error) {
+    /*
+     * A fault, not an outcome - the caller gets the error. But the hold is
+     * ours to clean up, including when insertPaymentAttempt itself failed and
+     * there is no ledger row to reconcile against.
+     *
+     * Release is best effort and its own failure is swallowed: the original
+     * fault is the one worth surfacing, and masking it with a cleanup error
+     * would hide the cause.
+     */
+    if (!captured) {
+      try {
+        await voidAuthorization(authorization.authorizationId);
+        if (attempt) {
+          await updatePaymentAttemptStatus(
+            pool,
+            attempt.id,
+            'VOIDED',
+            authorization.authorizationId,
+          );
+        }
+      } catch {
+        /* keep the original error */
+      }
+    }
+    throw error;
   }
 }
 

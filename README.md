@@ -12,7 +12,7 @@ npm install
 npx supabase start                          # local Postgres on :54322
 cp .env.example .env.local
 npm run db:reset                            # migrations + deterministic seed
-npm run verify                              # typecheck + lint + 31 unit + 96 integration tests
+npm run verify                              # typecheck + lint + unit + integration tests
 ```
 
 Then `npm run dev` and open <http://localhost:3000/book>.
@@ -213,8 +213,8 @@ indefinitely without breaking an invariant — it reclaims and reports, it never
 ## Verification
 
 ```bash
-npm test          # 31 unit tests, no database
-npm run test:int  # 96 integration tests against real Postgres
+npm test          # unit tests, no database
+npm run test:int  # integration tests against real Postgres
 npm run test:race # the race test and the lock-disabled proof, no file parallelism
 ```
 
