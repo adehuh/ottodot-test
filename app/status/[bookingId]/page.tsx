@@ -5,7 +5,7 @@ import { getBookingDetail } from '@/src/services/booking';
 import type { BookingView } from '@/src/domain/dto';
 import { StepHeader } from '@/src/ui/StepHeader';
 import { ResultCard, type ResultCardCode } from '@/src/ui/ResultCard';
-import { RosterNudge } from '@/src/ui/RosterNudge';
+import { RosterHintTrigger } from '@/src/ui/RosterHint';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,11 +46,14 @@ export default async function StatusPage({
         <StepHeader current={3} title="Booking status" />
       </div>
 
-      <ResultCard code={cardCodeFor(detail.booking)} detail={detail}>
-        {detail.booking.status === 'CONFIRMED' ? (
-          <RosterNudge classId={detail.booking.trialClassId} />
-        ) : null}
-      </ResultCard>
+      {/* Points the header's Admin roster tab at this class. The hint lives
+          up there because that is the control a reader has to click; a
+          callout inside the card would explain the move without showing it. */}
+      {detail.booking.status === 'CONFIRMED' ? (
+        <RosterHintTrigger classId={detail.booking.trialClassId} />
+      ) : null}
+
+      <ResultCard code={cardCodeFor(detail.booking)} detail={detail} />
     </main>
   );
 }
