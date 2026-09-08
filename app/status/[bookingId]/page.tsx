@@ -1,12 +1,11 @@
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
 
 import { getPool } from '@/src/db/pool';
-import { getBooking } from '@/src/services/booking';
+import { getBookingDetail } from '@/src/services/booking';
 import type { BookingView } from '@/src/domain/dto';
 import { StepHeader } from '@/src/ui/StepHeader';
 import { ResultCard, type ResultCardCode } from '@/src/ui/ResultCard';
-import { BOOKING_STATUS_LABEL } from '@/src/ui/labels';
+import { RosterNudge } from '@/src/ui/RosterNudge';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,10 +35,10 @@ export default async function StatusPage({
 }) {
   const { bookingId } = await params;
 
-  const result = await getBooking(getPool(), bookingId);
+  const result = await getBookingDetail(getPool(), bookingId);
   if (!result.ok) notFound();
 
-  const booking = result.value;
+  const detail = result.value;
 
   return (
     <main className="mx-auto max-w-xl space-y-6">
@@ -47,18 +46,9 @@ export default async function StatusPage({
         <StepHeader current={3} title="Booking status" />
       </div>
 
-      <ResultCard
-        code={cardCodeFor(booking)}
-        bookingStatusLabel={BOOKING_STATUS_LABEL[booking.status]}
-        bookingId={booking.id}
-      >
-        {booking.status === 'CONFIRMED' ? (
-          <Link
-            href={`/roster/${booking.trialClassId}`}
-            className="text-sm font-semibold text-teal-700 underline hover:text-teal-800"
-          >
-            View the class roster
-          </Link>
+      <ResultCard code={cardCodeFor(detail.booking)} detail={detail}>
+        {detail.booking.status === 'CONFIRMED' ? (
+          <RosterNudge classId={detail.booking.trialClassId} />
         ) : null}
       </ResultCard>
     </main>

@@ -93,7 +93,9 @@ checkout can strand a seat.
 - Parent picks a child and a trial class, sees live seat counts.
 - Mock payment with a forced-decline button, so the failure path is demonstrable on purpose.
 - Booking status screen driven by result codes, not by prose.
-- Teacher roster per class, counting confirmed bookings only.
+- Teacher roster: an admin index of every class with expandable rows showing the full booking
+  history, plus a per-class page. The count is confirmed bookings only; pending and failed rows sit
+  below the line where you can see them not being counted.
 - `POST /api/dev/reset`, which reseeds through the same `seed()` the tests use and 404s in production.
 - A race test with genuine parallelism, and a test that removes the lock and proves overbooking happens.
 
@@ -132,7 +134,7 @@ supported by `bookings_confirmed_by_class`. Money is integer cents plus a curren
 | Create a booking | Server Action | `createBookingAction({studentId, trialClassId}): Result<BookingView>` |
 | Authorise + confirm (**the core**) | Server Action | `confirmBookingAction({bookingId, simulate}): Result<BookingView>` |
 | Booking status | Server Action | `getBookingAction(bookingId): Result<BookingView>` |
-| Roster | Route handler | `GET /api/roster/[classId]` |
+| Roster (per class) | Route handler | `GET /api/roster/[classId]` |
 | Dev reset | Route handler | `POST /api/dev/reset` — 404 in production |
 
 Services return discriminated unions and never throw for an expected outcome; a `throw` means a
@@ -303,9 +305,6 @@ real, and deploy was cut to protect the verification work.
 - **Rate limiting, structured logging, tracing, a CI pipeline, E2E browser tests.** All cheap to add
   later and none of them move the correctness argument. I walked the four screens in a browser by
   hand instead.
-- **An admin table showing pending and failed rows below the roster line.** The design I worked from
-  included it; the spec asks for a per-class roster counting confirmed bookings only, so that is
-  what shipped.
 
 ## What I would monitor after release
 

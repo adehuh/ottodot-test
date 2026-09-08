@@ -1,5 +1,9 @@
 import { getPool } from '@/src/db/pool';
-import { listChildren, listTrialClasses } from '@/src/services/catalog';
+import {
+  listAlreadyBookedByStudent,
+  listChildren,
+  listTrialClasses,
+} from '@/src/services/catalog';
 import { TRIAL_CURRENCY, TRIAL_PRICE_CENTS } from '@/src/domain/types';
 import { SEED_IDS } from '@/db/seed';
 import { StepHeader } from '@/src/ui/StepHeader';
@@ -35,18 +39,30 @@ export default async function BookPage({
     listTrialClasses(pool),
   ]);
 
+  const alreadyBookedByStudent = await listAlreadyBookedByStudent(
+    pool,
+    childrenList.map((c) => c.id),
+  );
+
   const priceLabel = `${TRIAL_CURRENCY} ${(TRIAL_PRICE_CENTS / 100).toFixed(2)}`;
 
   return (
     <main className="mx-auto max-w-xl space-y-6">
       <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
+        <p className="text-[11px] font-bold tracking-widest text-teal-700 uppercase">Parent view</p>
+        <div className="mt-2" />
         <StepHeader
           current={1}
           title="Book a trial class"
           subtitle="One free trial per child. Pick a child, then a class."
         />
         <div className="mt-6">
-          <BookingForm childrenList={childrenList} classes={classes} priceLabel={priceLabel} />
+          <BookingForm
+            childrenList={childrenList}
+            classes={classes}
+            priceLabel={priceLabel}
+            alreadyBookedByStudent={alreadyBookedByStudent}
+          />
         </div>
       </div>
 

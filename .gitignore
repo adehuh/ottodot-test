@@ -19,3 +19,7 @@ tsconfig.tsbuildinfo
 
 supabase/.branches/
 supabase/.temp/
+
+# take-home brief, not mine to redistribute
+*.docx.pdf
+Ottodot_Full_Stack_Take_Home_Instructions*

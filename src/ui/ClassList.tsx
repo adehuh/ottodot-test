@@ -19,18 +19,21 @@ function ClassRow({
   trialClass,
   selectedId,
   onSelect,
+  disabledReason,
 }: {
   trialClass: TrialClassView;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  disabledReason: string | null;
 }) {
   const full = trialClass.isFull;
+  const disabled = disabledReason !== null;
   const selected = selectedId === trialClass.id;
 
   return (
     <label
       className={`flex min-h-[44px] flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center sm:gap-3.5 focus-within:ring-2 focus-within:ring-teal-600 focus-within:ring-offset-2 ${
-        full
+        disabled
           ? 'cursor-not-allowed border border-slate-200 bg-slate-50 opacity-65'
           : selected
             ? 'cursor-pointer border-2 border-teal-600 bg-teal-50'
@@ -43,7 +46,7 @@ function ClassRow({
         value={trialClass.id}
         checked={selected}
         onChange={() => onSelect(trialClass.id)}
-        disabled={full}
+        disabled={disabled}
         className="sr-only"
       />
 
@@ -59,18 +62,25 @@ function ClassRow({
         <span className="mt-1 block text-[13px] text-slate-500">
           {formatStartsAt(trialClass.startsAt)} · {trialClass.teacherName}
         </span>
-        {full ? (
+        {disabledReason ? (
           <span className="mt-1 block text-[13px] font-medium text-slate-500">
-            Class full — all {trialClass.capacity} seats are confirmed
+            {disabledReason}
           </span>
         ) : null}
       </span>
 
       <span className={`shrink-0 ${seatsBadgeClass(trialClass.seatsLeft, full)}`}>
-        {seatsLabel(trialClass.seatsLeft, full)}
+        {alreadyBookedBadge(disabledReason, full)
+          ? 'BOOKED'
+          : seatsLabel(trialClass.seatsLeft, full, trialClass.capacity)}
       </span>
     </label>
   );
+}
+
+/** A row is badged BOOKED when the reason is the child, not the capacity. */
+function alreadyBookedBadge(disabledReason: string | null, full: boolean): boolean {
+  return disabledReason !== null && !full;
 }
 
 export function ClassList({
@@ -78,11 +88,18 @@ export function ClassList({
   selectedId,
   onSelect,
   disabled,
+  disabledReasonFor,
 }: {
   classes: TrialClassView[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   disabled: boolean;
+  /**
+   * Why this class cannot be chosen for the selected child, or null. Advisory
+   * only (R7.1) - the partial unique index and the guarded UPDATE are what
+   * actually prevent a duplicate and an overbooking.
+   */
+  disabledReasonFor: (trialClass: TrialClassView) => string | null;
 }) {
   return (
     <fieldset disabled={disabled} className="disabled:opacity-60">
@@ -101,6 +118,7 @@ export function ClassList({
               trialClass={trialClass}
               selectedId={selectedId}
               onSelect={onSelect}
+              disabledReason={disabledReasonFor(trialClass)}
             />
           ))}
         </div>

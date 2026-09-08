@@ -11,14 +11,14 @@ import {
   insertPendingBooking,
   markPaymentFailed,
 } from '@/src/db/bookings';
-import { insertPaymentAttempt, updatePaymentAttemptStatus } from '@/src/db/payments';
+import { insertPaymentAttempt, listPaymentAttempts, updatePaymentAttemptStatus } from '@/src/db/payments';
 import {
   authorize,
   capture,
   voidAuthorization,
   type PaymentSimulation,
 } from '@/src/payments/mock';
-import { toBookingView, type BookingView } from '@/src/domain/dto';
+import { toBookingView, toTrialClassView, type BookingDetailView, type BookingView } from '@/src/domain/dto';
 import { TRIAL_CURRENCY, TRIAL_PRICE_CENTS, type BookingRow } from '@/src/domain/types';
 import { err, ok, type Result } from '@/src/domain/result';
 import { withTransaction } from './tx';
@@ -231,4 +231,38 @@ export async function getBooking(pool: Pool, bookingId: string): Promise<Result<
   const booking = await findBooking(pool, bookingId);
   if (!booking) return err('NOT_FOUND');
   return ok(toBookingView(booking));
+}
+
+/**
+ * Everything the payment and status screens render, in one call: the booking,
+ * who it is for, what was booked, current seat availability, and the latest
+ * payment attempt.
+ *
+ * The last one matters on the losing side of a race — showing the parent the
+ * reference of the authorisation that was released is more convincing than
+ * telling them nothing was charged.
+ */
+export async function getBookingDetail(
+  pool: Pool,
+  bookingId: string,
+): Promise<Result<BookingDetailView>> {
+  const booking = await findBooking(pool, bookingId);
+  if (!booking) return err('NOT_FOUND');
+
+  const [student, trialClass, attempts] = await Promise.all([
+    findStudent(pool, booking.student_id),
+    findTrialClass(pool, booking.trial_class_id),
+    listPaymentAttempts(pool, booking.id),
+  ]);
+  if (!student || !trialClass) return err('NOT_FOUND');
+
+  const confirmedCount = await countConfirmed(pool, trialClass.id);
+  const latest = attempts.at(-1) ?? null;
+
+  return ok({
+    booking: toBookingView(booking),
+    studentName: student.name,
+    trialClass: toTrialClassView(trialClass, confirmedCount),
+    payment: latest ? { status: latest.status, providerRef: latest.provider_ref } : null,
+  });
 }

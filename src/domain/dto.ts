@@ -8,6 +8,7 @@ import type {
   BookingRow,
   BookingStatus,
   ClassSubject,
+  PaymentStatus,
   StudentRow,
   TrialClassRow,
 } from './types';
@@ -89,3 +90,37 @@ export const toBookingView = (row: BookingRow): BookingView => ({
   confirmedAt: row.confirmed_at ? row.confirmed_at.toISOString() : null,
   createdAt: row.created_at.toISOString(),
 });
+
+/**
+ * Everything the status and payment screens render, in one shape. The result
+ * card needs the class and child to say *what* was booked, and the payment
+ * reference to show that the authorisation was released rather than charged.
+ */
+export interface BookingDetailView {
+  booking: BookingView;
+  studentName: string;
+  trialClass: TrialClassView;
+  /** Latest attempt for this booking, if it ever reached the gateway. */
+  payment: { status: PaymentStatus; providerRef: string | null } | null;
+}
+
+/** One booking row inside an expanded class, whatever its status. */
+export interface ClassBookingView {
+  bookingId: string;
+  studentName: string;
+  gradeLevel: string;
+  status: BookingStatus;
+  cancellationReason: string | null;
+  createdAt: string;
+  confirmedAt: string | null;
+  paymentStatus: PaymentStatus | null;
+  paymentAttempts: number;
+}
+
+/** A class plus every booking against it — the admin/teacher view. */
+export interface ClassRosterView {
+  trialClass: TrialClassView;
+  confirmed: ClassBookingView[];
+  /** Pending, failed and cancelled. Kept for audit; never on the roster. */
+  other: ClassBookingView[];
+}

@@ -1,4 +1,4 @@
-import type { BookingRow, StudentRow } from '@/src/domain/types';
+import type { BookingRow, PaymentStatus, StudentRow } from '@/src/domain/types';
 import type { Queryable } from './queryable';
 
 /**
@@ -170,4 +170,120 @@ export async function listRoster(db: Queryable, trialClassId: string): Promise<R
       updated_at: row.student_updated_at,
     },
   }));
+}
+
+/**
+ * Which classes each of these children already has a *live* booking for —
+ * the same two statuses the partial unique index covers.
+ *
+ * Feeds the "already booked" reason on the class list. Advisory only: the
+ * index is what actually prevents the duplicate (R7.1).
+ */
+export async function listLiveBookingsForStudents(
+  db: Queryable,
+  studentIds: string[],
+): Promise<Array<{ student_id: string; trial_class_id: string }>> {
+  if (studentIds.length === 0) return [];
+  const { rows } = await db.query<{ student_id: string; trial_class_id: string }>(
+    `select student_id, trial_class_id
+       from bookings
+      where student_id = any($1::uuid[])
+        and status in ('PENDING_PAYMENT', 'CONFIRMED')`,
+    [studentIds],
+  );
+  return rows;
+}
+
+export interface ClassBookingRow {
+  booking: BookingRow;
+  student: StudentRow;
+  paymentStatus: PaymentStatus | null;
+  paymentAttempts: number;
+}
+
+interface ClassBookingJoinRow extends BookingRow {
+  student_row_id: string;
+  student_parent_id: string;
+  student_name: string;
+  student_grade_level: string;
+  student_created_at: Date;
+  student_updated_at: Date;
+  payment_status: PaymentStatus | null;
+  payment_attempts: number;
+}
+
+/**
+ * Every booking for a class, whatever its status — the audit view behind the
+ * roster. The roster *count* still means confirmed only; these extra rows are
+ * what make a decline visible rather than merely absent.
+ *
+ * The payment column is the latest attempt, plus how many attempts there have
+ * been, so a repeated decline reads as "declined x2" instead of looking like
+ * one.
+ */
+export async function listBookingsForClasses(
+  db: Queryable,
+  classIds: string[],
+): Promise<Map<string, ClassBookingRow[]>> {
+  const grouped = new Map<string, ClassBookingRow[]>();
+  if (classIds.length === 0) return grouped;
+
+  const { rows } = await db.query<ClassBookingJoinRow>(
+    `select b.*,
+            s.id          as student_row_id,
+            s.parent_id   as student_parent_id,
+            s.name        as student_name,
+            s.grade_level as student_grade_level,
+            s.created_at  as student_created_at,
+            s.updated_at  as student_updated_at,
+            (select p.status from payment_attempts p
+              where p.booking_id = b.id
+              order by p.created_at desc, p.id desc
+              limit 1) as payment_status,
+            (select count(*)::int from payment_attempts p
+              where p.booking_id = b.id) as payment_attempts
+       from bookings b
+       join students s on s.id = b.student_id
+      where b.trial_class_id = any($1::uuid[])
+      order by
+        case b.status
+          when 'CONFIRMED' then 0
+          when 'PENDING_PAYMENT' then 1
+          when 'PAYMENT_FAILED' then 2
+          else 3
+        end,
+        b.created_at asc`,
+    [classIds],
+  );
+
+  for (const row of rows) {
+    const entry: ClassBookingRow = {
+      booking: {
+        id: row.id,
+        student_id: row.student_id,
+        trial_class_id: row.trial_class_id,
+        status: row.status,
+        cancellation_reason: row.cancellation_reason,
+        hold_expires_at: row.hold_expires_at,
+        confirmed_at: row.confirmed_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      },
+      student: {
+        id: row.student_row_id,
+        parent_id: row.student_parent_id,
+        name: row.student_name,
+        grade_level: row.student_grade_level,
+        created_at: row.student_created_at,
+        updated_at: row.student_updated_at,
+      },
+      paymentStatus: row.payment_status,
+      paymentAttempts: row.payment_attempts,
+    };
+    const list = grouped.get(row.trial_class_id);
+    if (list) list.push(entry);
+    else grouped.set(row.trial_class_id, [entry]);
+  }
+
+  return grouped;
 }

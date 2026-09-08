@@ -27,10 +27,10 @@ export const CLASS_SUBJECT_TAG: Record<ClassSubject, string> = {
 };
 
 /** Seat state is never conveyed by colour alone (R7.5) - the words carry it. */
-export function seatsLabel(seatsLeft: number, isFull: boolean): string {
+export function seatsLabel(seatsLeft: number, isFull: boolean, capacity?: number): string {
   if (isFull) return 'FULL';
   if (seatsLeft === 1) return '1 seat left';
-  return `${seatsLeft} seats left`;
+  return capacity ? `${seatsLeft} of ${capacity} seats left` : `${seatsLeft} seats left`;
 }
 
 /**

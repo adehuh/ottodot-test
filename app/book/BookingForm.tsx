@@ -15,10 +15,13 @@ export function BookingForm({
   childrenList,
   classes,
   priceLabel,
+  alreadyBookedByStudent,
 }: {
   childrenList: StudentView[];
   classes: TrialClassView[];
   priceLabel: string;
+  /** studentId -> class ids that child already holds a live booking for. */
+  alreadyBookedByStudent: Record<string, string[]>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -28,7 +31,26 @@ export function BookingForm({
 
   const selectedChild = childrenList.find((c) => c.id === studentId) ?? null;
   const selectedClass = classes.find((c) => c.id === trialClassId) ?? null;
-  const ready = Boolean(studentId && trialClassId) && !pending;
+
+  /*
+   * Kindness, not enforcement (R7.1). Both reasons below are re-checked by the
+   * server: the partial unique index rejects the duplicate and the guarded
+   * UPDATE rejects the overbooking, so deleting this function would change
+   * nothing about what the system permits.
+   */
+  const bookedClassIds = studentId ? (alreadyBookedByStudent[studentId] ?? []) : [];
+  const disabledReasonFor = (trialClass: TrialClassView): string | null => {
+    if (selectedChild && bookedClassIds.includes(trialClass.id)) {
+      return `${selectedChild.name} is already booked for this class`;
+    }
+    if (trialClass.isFull) {
+      return `Class full — all ${trialClass.capacity} seats are confirmed`;
+    }
+    return null;
+  };
+
+  const blocked = selectedClass ? disabledReasonFor(selectedClass) !== null : false;
+  const ready = Boolean(studentId && trialClassId) && !blocked && !pending;
 
   function submit() {
     if (!studentId || !trialClassId) return;
@@ -64,6 +86,7 @@ export function BookingForm({
         selectedId={trialClassId}
         onSelect={setTrialClassId}
         disabled={pending}
+        disabledReasonFor={disabledReasonFor}
       />
 
       <BookingSummary
