@@ -14,6 +14,7 @@ import {
   cancelBooking,
   markPaymentFailed,
   listRoster,
+  listBookingsForClasses,
   CONFIRM_BOOKING_SQL,
 } from '@/src/db/bookings';
 import { insertPaymentAttempt, listPaymentAttempts } from '@/src/db/payments';
@@ -176,6 +177,138 @@ describe('repositories', () => {
       expect(sql).toContain('update bookings');
       expect(sql).toContain('count(*)');
       expect(sql).toContain("status = 'pending_payment'");
+    });
+  });
+
+  describe('listBookingsForClasses — the admin audit view', () => {
+    /**
+     * Builds Geometry into a class holding one booking of every stored status,
+     * so the CASE ordering and both correlated subqueries are exercised at
+     * once. The seed already supplies 2 CONFIRMED and 1 PAYMENT_FAILED.
+     */
+    async function geometryWithEveryStatus(): Promise<string> {
+      const pending = await insertPendingBooking(
+        db.pool,
+        SEED_IDS.students.arun,
+        SEED_IDS.classes.geometry,
+      );
+      await insertPaymentAttempt(db.pool, {
+        bookingId: pending.id,
+        amountCents: 4500,
+        currency: 'SGD',
+        status: 'AUTHORIZED',
+        providerRef: 'auth_pending',
+      });
+
+      const loser = await insertPendingBooking(
+        db.pool,
+        SEED_IDS.students.mei,
+        SEED_IDS.classes.geometry,
+      );
+      await cancelBooking(db.pool, loser.id, 'SEAT_TAKEN');
+      return SEED_IDS.classes.geometry;
+    }
+
+    it('orders CONFIRMED, then PENDING_PAYMENT, then PAYMENT_FAILED, then CANCELLED', async () => {
+      const classId = await geometryWithEveryStatus();
+
+      const grouped = await listBookingsForClasses(db.pool, [classId]);
+      const rows = grouped.get(classId) ?? [];
+
+      // The hand-rolled CASE is the only thing producing this order; created_at
+      // alone would interleave them, because the cancelled row is the newest.
+      expect(rows.map((r) => r.booking.status)).toEqual([
+        'CONFIRMED',
+        'CONFIRMED',
+        'PENDING_PAYMENT',
+        'PAYMENT_FAILED',
+        'CANCELLED',
+      ]);
+    });
+
+    it('lists PAYMENT_FAILED rows without letting them count toward confirmed seats', async () => {
+      const classId = await geometryWithEveryStatus();
+
+      const rows = (await listBookingsForClasses(db.pool, [classId])).get(classId) ?? [];
+      const confirmed = rows.filter((r) => r.booking.status === 'CONFIRMED');
+
+      // Present in the audit view...
+      expect(rows.some((r) => r.booking.status === 'PAYMENT_FAILED')).toBe(true);
+      // ...and absent from the count the confirm transaction guards.
+      expect(confirmed).toHaveLength(2);
+      expect(await countConfirmed(db.pool, classId)).toBe(2);
+    });
+
+    it('reports the latest payment attempt and how many there have been', async () => {
+      await geometryWithEveryStatus();
+      const booking = await insertPendingBooking(
+        db.pool,
+        SEED_IDS.students.sara,
+        SEED_IDS.classes.volcanoes,
+      );
+
+      // Two declines on one booking: the subquery must surface the newest,
+      // and the count is what turns "declined" into "declined x2".
+      await insertPaymentAttempt(db.pool, {
+        bookingId: booking.id,
+        amountCents: 4500,
+        currency: 'SGD',
+        status: 'FAILED',
+        providerRef: null,
+      });
+      await insertPaymentAttempt(db.pool, {
+        bookingId: booking.id,
+        amountCents: 4500,
+        currency: 'SGD',
+        status: 'AUTHORIZED',
+        providerRef: 'auth_latest',
+      });
+
+      const rows =
+        (await listBookingsForClasses(db.pool, [SEED_IDS.classes.volcanoes])).get(
+          SEED_IDS.classes.volcanoes,
+        ) ?? [];
+      const row = rows.find((r) => r.booking.id === booking.id);
+
+      expect(row?.paymentStatus).toBe('AUTHORIZED');
+      expect(row?.paymentAttempts).toBe(2);
+    });
+
+    it('reports no payment attempt for a booking that never reached the gateway', async () => {
+      const booking = await insertPendingBooking(
+        db.pool,
+        SEED_IDS.students.arun,
+        SEED_IDS.classes.volcanoes,
+      );
+
+      const rows =
+        (await listBookingsForClasses(db.pool, [SEED_IDS.classes.volcanoes])).get(
+          SEED_IDS.classes.volcanoes,
+        ) ?? [];
+      const row = rows.find((r) => r.booking.id === booking.id);
+
+      expect(row?.paymentStatus).toBeNull();
+      expect(row?.paymentAttempts).toBe(0);
+    });
+
+    it('groups by class and returns an empty map for no ids', async () => {
+      const grouped = await listBookingsForClasses(db.pool, [
+        SEED_IDS.classes.volcanoes,
+        SEED_IDS.classes.circuits,
+      ]);
+
+      expect(grouped.get(SEED_IDS.classes.volcanoes)).toHaveLength(1);
+      expect(grouped.get(SEED_IDS.classes.circuits)).toHaveLength(4);
+      expect((await listBookingsForClasses(db.pool, [])).size).toBe(0);
+    });
+
+    it('returns real Date objects, not JSON strings', async () => {
+      const rows =
+        (await listBookingsForClasses(db.pool, [SEED_IDS.classes.volcanoes])).get(
+          SEED_IDS.classes.volcanoes,
+        ) ?? [];
+      expect(rows[0]?.booking.created_at).toBeInstanceOf(Date);
+      expect(rows[0]?.student.created_at).toBeInstanceOf(Date);
     });
   });
 

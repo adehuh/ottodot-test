@@ -12,7 +12,7 @@ npm install
 npx supabase start                          # local Postgres on :54322
 cp .env.example .env.local
 npm run db:reset                            # migrations + deterministic seed
-npm run verify                              # typecheck + lint + 31 unit + 94 integration tests
+npm run verify                              # typecheck + lint + 31 unit + 96 integration tests
 ```
 
 Then `npm run dev` and open <http://localhost:3000/book>.
@@ -214,7 +214,7 @@ indefinitely without breaking an invariant — it reclaims and reports, it never
 
 ```bash
 npm test          # 31 unit tests, no database
-npm run test:int  # 94 integration tests against real Postgres
+npm run test:int  # 96 integration tests against real Postgres
 npm run test:race # the race test and the lock-disabled proof, no file parallelism
 ```
 
@@ -247,6 +247,18 @@ The lock-free statement is derived from the exported production constant by remo
 never hand-copied, and the test asserts the removal actually changed the string. A hand-copy drifts
 the moment the real statement changes, and a drifted proof still passes while proving nothing.
 
+- **`repositories.int.test.ts`** — covers `listBookingsForClasses`, the admin audit view. It runs
+  two correlated subqueries per row and a hand-rolled `CASE` status ordering, so the test asserts
+  the order explicitly and checks that `PAYMENT_FAILED` rows appear in the list without counting
+  toward confirmed seats. The ordering assertion was verified by scrambling the `CASE`.
+
+**Not covered, deliberately.** `listClassRosters`, `listLiveBookingsForStudents`,
+`listAlreadyBookedByStudent` and `getBookingDetail` have no direct tests. They are read-only
+composition over repository functions that are covered, none of them can affect whether a seat
+exists, and with the time left I would rather say so than imply a coverage level I did not reach.
+`listBookingsForClasses` got the test because it is the only one of the five carrying SQL that can
+be wrong on its own.
+
 **The race test passed 20 consecutive runs.** A race that passes once has not been tested.
 
 **Every invariant has a test whose purpose is to violate it.** I verified this by removing each
@@ -265,21 +277,34 @@ rather add the assertion than make the claim.
 
 ## Time spent
 
-47 minutes of wall-clock for the code, plus this document. Roughly:
+**3h 45m**, inside the brief's 3–4 hour cap.
 
 | Phase | Time |
 |---|---|
-| Scaffold, strict TypeScript, the layer lint rule | 6m |
-| Schema, migration, seed, repositories | 11m |
-| Payment mock and the booking service | 7m |
-| Race test, lock-disabled proof, 20 consecutive runs | 5m |
-| Server actions, roster route, dev reset | 3m |
-| Four screens, then the design system pass | 15m |
+| Writing `SPEC.md`, `ARCHITECTURE.md`, `.claude/RULES.md` before any code | 1h 00m |
+| Design canvas, four screens | 30m |
+| Code generation, wall-clock | 1h 15m |
+| Reviewing output, running `verify`, corrections | 1h 00m |
+| **Subtotal** | **3h 45m** |
 
-That is not a human figure and I am not going to present it as one. This was built in a single
-Claude Code session; `AI_USAGE.md` covers what that involved, including where I rejected the model's
-output. The brief's 3–4 hour budget shaped the scope decisions regardless — the cut list below is
-real, and deploy was cut to protect the verification work.
+The video sits outside this figure.
+
+The code figure is derived from `git log`: the sum of gaps between consecutive commits, counting
+only gaps of ten minutes or less and treating longer ones as review or idle. That is reproducible
+from the repository rather than remembered, which is the only reason to trust it —
+`git log --format='%ad' --date=format:'%H:%M'` and add up the short gaps.
+
+The shape of that table is the point. An hour of specification and an hour of review bracket the
+generation, so most of the time went into deciding what the code should be and checking that it
+was — which is where it should go. The generation is only that short because the locking strategy,
+the status taxonomy, the payment ordering and the layering were already settled in writing before
+it started.
+
+The review hour earned itself. It is where the roster query's `to_jsonb` type lie was caught, where
+the seed's non-deterministic ids were caught, where I rejected an `eslint-disable` that would
+otherwise have been the first suppression in the repository, and where I found that a rule I had
+written myself was wrong and had leaked a payment authorisation on three exit paths. `AI_USAGE.md`
+covers all four.
 
 ## Assumptions
 

@@ -28,16 +28,43 @@ import { resetGateway } from '@/src/payments/mock';
  */
 const SELECT_CLASS_WITHOUT_LOCK = SELECT_CLASS_FOR_UPDATE_SQL.replace(/\s+for\s+update/i, '');
 
-/** Aligns the concurrent transactions so their UPDATEs are genuinely in flight together. */
-const ALIGN_MS = 60;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Releases every waiter only once all of them have arrived.
+ *
+ * A sleep was not enough. Each transaction has to reach its guarded UPDATE
+ * *before any other has committed*, and on a loaded machine a fixed delay lets
+ * some transactions commit while others are still waiting - so the count is
+ * already accurate by the time they read it and no overbooking occurs. That
+ * made the proof pass sometimes and fail others, which is worse than useless
+ * for the one test whose job is to demonstrate a race.
+ *
+ * The barrier makes the interleaving deterministic: nobody runs the UPDATE
+ * until everybody has opened a transaction and read the class row.
+ */
+function createBarrier(size: number): () => Promise<void> {
+  let arrived = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  return async () => {
+    arrived += 1;
+    if (arrived >= size) release();
+    await gate;
+  };
+}
 
 /**
  * The confirm transaction with one line removed. Everything else - the
  * guarded UPDATE, the capacity subquery, READ COMMITTED - is identical to
  * production.
  */
-async function confirmWithoutLock(pool: Pool, bookingId: string): Promise<boolean> {
+async function confirmWithoutLock(
+  pool: Pool,
+  bookingId: string,
+  barrier: () => Promise<void>,
+): Promise<boolean> {
   return withTransaction(pool, async (client) => {
     const booking = await findBooking(client, bookingId);
     if (!booking) throw new Error('missing booking');
@@ -50,8 +77,8 @@ async function confirmWithoutLock(pool: Pool, bookingId: string): Promise<boolea
 
     // Without the lock nothing serialises these transactions, so they all
     // reach the guarded UPDATE together and each evaluates the seat count
-    // against its own snapshot.
-    await sleep(ALIGN_MS);
+    // against its own snapshot - every one of them still sees zero confirmed.
+    await barrier();
 
     return (await confirmBookingUnderLock(client, bookingId, capacity)) !== null;
   });
@@ -112,8 +139,9 @@ describe('the FOR UPDATE lock is load-bearing', () => {
   it('OVERBOOKS a four-seat class without the lock', async () => {
     const { classId, bookingIds } = await fourSeatClassWithContenders(8);
 
+    const barrier = createBarrier(bookingIds.length);
     const results = await Promise.all(
-      bookingIds.map((bookingId) => confirmWithoutLock(db.pool, bookingId)),
+      bookingIds.map((bookingId) => confirmWithoutLock(db.pool, bookingId, barrier)),
     );
 
     const confirmed = await countConfirmed(db.pool, classId);
