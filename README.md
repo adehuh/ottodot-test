@@ -228,9 +228,15 @@ What the important tests prove:
 - **`schema.int.test.ts`** — the duplicate invariant in raw SQL with the application removed. If it
   passes, the invariant also holds for someone connected with `psql`.
 - **`confirm-booking.int.test.ts`** — the fifth booking is refused even when the advisory
-  `CLASS_FULL` check is bypassed by inserting through the repository; a decline rosters nobody and
-  leaves the roster list byte-for-byte unchanged; an already-confirmed retry returns
-  `ALREADY_CONFIRMED` and voids nothing.
+  `CLASS_FULL` check is bypassed by inserting through the repository, and a decline rosters nobody
+  and leaves the roster list byte-for-byte unchanged. It also asserts the money invariant directly:
+  after *any* outcome, no authorisation for that booking is still live — every attempt row has
+  settled to `CAPTURED`, `VOIDED` or `FAILED`, and the gateway agrees with the row. One assertion
+  covers every branch, including ones added later, which a per-branch test cannot do.
+  Two of the in-transaction branches are only reachable concurrently, because the advisory
+  pre-check returns before a transaction is ever opened: two simultaneous confirms of the same
+  booking reach `ALREADY_CONFIRMED`, and cancelling a booking inside the authorise window reaches
+  `BOOKING_NOT_ACTIVE`. Both were verified to fail when the release is removed.
 - **`race.int.test.ts`** — eight parents, one empty four-seat class, `Promise.all` over independent
   connections. Exactly four confirmed, four cancelled with reason `SEAT_TAKEN`, four authorisations
   voided, zero losers captured. Also runs at capacity 2, so nothing is hardcoded to four.

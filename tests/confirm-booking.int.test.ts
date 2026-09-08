@@ -29,6 +29,37 @@ describe('confirmBooking', () => {
     resetGateway();
   });
 
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /**
+   * The invariant, asserted directly rather than branch by branch: after ANY
+   * confirmBooking outcome, no authorization for that booking is still live.
+   * Every attempt row has settled to CAPTURED, VOIDED or FAILED, and the
+   * gateway agrees with the row.
+   *
+   * One assertion covers all four in-transaction outcomes and any branch added
+   * later. A per-branch test only proves the branches someone remembered to
+   * write a test for.
+   */
+  async function expectNoLiveAuthorization(bookingId: string): Promise<void> {
+    const attempts = await listPaymentAttempts(db.pool, bookingId);
+
+    for (const attempt of attempts) {
+      expect(attempt.status).not.toBe('AUTHORIZED');
+
+      if (attempt.status === 'FAILED') {
+        // A decline creates no authorization, so there is nothing to release.
+        expect(attempt.provider_ref).toBeNull();
+        continue;
+      }
+
+      // The ledger and the gateway must tell the same story. A row marked
+      // VOIDED while the gateway still holds the money is the failure this
+      // helper exists to catch.
+      expect(getAuthorization(attempt.provider_ref ?? '')?.status).toBe(attempt.status);
+    }
+  }
+
   describe('the happy path', () => {
     it('confirms the last seat and captures the payment', async () => {
       const pending = await insertPendingBooking(
@@ -60,6 +91,7 @@ describe('confirmBooking', () => {
       expect(attempts).toHaveLength(1);
       expect(attempts[0]?.status).toBe('CAPTURED');
       expect(attempts[0]?.provider_ref).toBeTruthy();
+      await expectNoLiveAuthorization(pending.id);
     });
 
     it('puts the child on the roster', async () => {
@@ -123,6 +155,7 @@ describe('confirmBooking', () => {
       const authId = attempts[0]?.provider_ref;
       expect(authId).toBeTruthy();
       expect(getAuthorization(authId ?? '')?.status).toBe('VOIDED');
+      await expectNoLiveAuthorization(pending.id);
     });
   });
 
@@ -170,6 +203,7 @@ describe('confirmBooking', () => {
       const attempts = await listPaymentAttempts(db.pool, pending.id);
       expect(attempts).toHaveLength(1);
       expect(attempts[0]?.status).toBe('FAILED');
+      await expectNoLiveAuthorization(pending.id);
     });
 
     it('lets the parent retry after the decline', async () => {
@@ -305,9 +339,37 @@ describe('confirmBooking', () => {
       expect(attempts.filter((a) => a.status === 'VOIDED')).toHaveLength(1);
       expect(attempts.filter((a) => a.status === 'AUTHORIZED')).toHaveLength(0);
 
-      for (const attempt of attempts) {
-        expect(getAuthorization(attempt.provider_ref ?? '')?.status).toBe(attempt.status);
-      }
+      await expectNoLiveAuthorization(pending.id);
+    });
+
+    it('voids when the booking is cancelled between the pre-check and the transaction', async () => {
+      const pending = await insertPendingBooking(
+        db.pool,
+        SEED_IDS.students.arun,
+        SEED_IDS.classes.fractions,
+      );
+
+      /*
+       * The pre-check reads PENDING_PAYMENT and lets the call through to
+       * authorize(). SLOW holds that call for ~50ms, and the booking is
+       * cancelled inside that window, so the in-transaction re-read sees
+       * CANCELLED. This is the only way to reach BOOKING_NOT_ACTIVE with an
+       * authorization already in hand.
+       */
+      const [result] = await Promise.all([
+        confirmBooking(db.pool, { bookingId: pending.id, simulate: 'SLOW' }),
+        (async () => {
+          await sleep(10);
+          await cancelBooking(db.pool, pending.id, 'ABANDONED');
+        })(),
+      ]);
+
+      expect(result).toEqual({ ok: false, code: 'BOOKING_NOT_ACTIVE' });
+
+      const attempts = await listPaymentAttempts(db.pool, pending.id);
+      expect(attempts).toHaveLength(1);
+      expect(attempts[0]?.status).toBe('VOIDED');
+      await expectNoLiveAuthorization(pending.id);
     });
 
     it('takes no authorization at all for a booking that is not pending', async () => {
