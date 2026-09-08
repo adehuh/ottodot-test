@@ -23,3 +23,8 @@ supabase/.temp/
 # take-home brief, not mine to redistribute
 *.docx.pdf
 Ottodot_Full_Stack_Take_Home_Instructions*
+
+# vercel project link (contains project + org ids)
+.vercel
+.env*
+!.env.example

@@ -21,6 +21,19 @@ export async function withTransaction<T>(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    /*
+     * Bound the wait for the class row lock (R2). A serverless function has a
+     * hard execution limit, so an unbounded lock wait does not "eventually
+     * succeed" - it burns the whole budget and the platform kills the request
+     * mid-transaction, leaving the caller with no answer and the parent
+     * looking at a spinner. Failing at three seconds gives the caller an
+     * error it can act on while there is still time to act.
+     *
+     * SET LOCAL is scoped to this transaction and reset at COMMIT, so it is
+     * safe under transaction-mode pgBouncer, which pins the connection for
+     * the transaction's life. It is not a session-level setting (R6).
+     */
+    await client.query("SET LOCAL lock_timeout = '3s'");
     const result = await fn(client);
     await client.query('COMMIT');
     return result;

@@ -108,6 +108,38 @@ describe('withTransaction', () => {
     expect(outsideDuring.value).toBe(0);
   });
 
+  it('gives up on a contended row rather than waiting forever', async () => {
+    // A serverless function has a hard execution limit, so an unbounded lock
+    // wait burns the whole budget and the platform kills the request
+    // mid-transaction. Three seconds leaves time to return an error.
+    const { rows } = await db.pool.query<{ id: string }>(
+      `insert into trial_classes (subject, title, teacher_name, starts_at)
+       values ('MATH', 'Contended', 'Ms Wait', now() + interval '9 days') returning id`,
+    );
+    const classId = rows[0]?.id;
+
+    const holder = await db.pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(`select id from trial_classes where id = $1 for update`, [classId]);
+
+      const started = Date.now();
+      await expect(
+        withTransaction(db.pool, async (client) => {
+          await client.query(`select id from trial_classes where id = $1 for update`, [classId]);
+        }),
+        // 55P03 is lock_not_available - the timeout firing, not a deadlock.
+      ).rejects.toMatchObject({ code: '55P03' });
+
+      const elapsed = Date.now() - started;
+      expect(elapsed).toBeGreaterThanOrEqual(2500);
+      expect(elapsed).toBeLessThan(8000);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+  });
+
   it('always releases the client, so the pool is not exhausted by repeated failures', async () => {
     // The pool has a small max. Without release-in-finally this deadlocks
     // long before the loop ends.

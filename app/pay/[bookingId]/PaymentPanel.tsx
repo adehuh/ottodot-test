@@ -8,12 +8,24 @@ import { ResultCard } from '@/src/ui/ResultCard';
 import { BOOKING_STATUS_LABEL, CLASS_SUBJECT_LABEL, formatStartsAt } from '@/src/ui/labels';
 import { confirmBookingAction, getBookingAction } from '@/app/actions';
 
-/** What each stored status means, in the parent's words. */
+/**
+ * What each state means, in the parent's words.
+ *
+ * The `kind` matters and is shown. Three of these are stored booking statuses;
+ * SEAT_TAKEN is a *result code* the confirm call returns and is never written
+ * to the database - the losing row is stored as CANCELLED with the reason.
+ * Rendering them identically would contradict the distinction the whole status
+ * design rests on.
+ */
 const STATE_LEGEND = [
-  ['PENDING_PAYMENT', 'Payment is being processed. No seat is reserved yet.'],
-  ['CONFIRMED', 'Seat secured and the child is on the roster.'],
-  ['SEAT_TAKEN', 'Payment succeeded but another booking took the last seat — the authorisation is voided, never captured.'],
-  ['PAYMENT_FAILED', 'Payment declined. The child is not added to the roster.'],
+  ['PENDING_PAYMENT', 'status', 'Payment is being processed. No seat is reserved yet.'],
+  ['CONFIRMED', 'status', 'Seat secured and the child is on the roster.'],
+  ['PAYMENT_FAILED', 'status', 'Payment declined. The child is not added to the roster.'],
+  [
+    'SEAT_TAKEN',
+    'result',
+    'Another booking took the last seat. The authorisation is voided, never captured. Stored as CANCELLED with this reason.',
+  ],
 ] as const;
 
 function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
@@ -156,15 +168,26 @@ export function PaymentPanel({
 
       <div className="overflow-hidden rounded-xl border border-slate-200">
         <p className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-bold tracking-widest text-slate-500 uppercase">
-          What each state means
+          What each state means — solid badges are stored statuses, dashed is a result code
         </p>
         <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-2.5 px-4 py-3.5">
-          {STATE_LEGEND.map(([code, meaning]) => (
+          {STATE_LEGEND.map(([code, kind, meaning]) => (
             <div key={code} className="contents">
-              <dt className="justify-self-start rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[10.5px] font-bold whitespace-nowrap text-slate-600">
+              <dt
+                className={`justify-self-start rounded border px-1.5 py-0.5 font-mono text-[10.5px] font-bold whitespace-nowrap ${
+                  kind === 'status'
+                    ? 'border-slate-200 bg-slate-100 text-slate-600'
+                    : 'border-dashed border-teal-300 bg-white text-teal-700'
+                }`}
+              >
                 {code}
               </dt>
-              <dd className="text-[13px] leading-snug text-slate-600">{meaning}</dd>
+              <dd className="text-[13px] leading-snug text-slate-600">
+                {meaning}
+                {kind === 'result' ? (
+                  <span className="ml-1 text-slate-400">(result code, not a stored status)</span>
+                ) : null}
+              </dd>
             </div>
           ))}
         </dl>
