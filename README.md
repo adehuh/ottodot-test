@@ -23,6 +23,10 @@ Then `npm run dev` and open <http://localhost:3000/book>.
 Requires Node 20.9+ (developed on 22.23) and Docker for the local Supabase stack. No cloud project
 is needed — everything runs locally.
 
+Also deployed at <https://ottodot-trial-booking-ade-s-projects9.vercel.app>, seeded with the same demo
+data: Volcanoes 1/4, Fractions 3/4 (the last-seat race), Circuits full, Geometry with a declined
+payment that consumed no seat.
+
 Prefer to watch rather than run it? The [video walkthrough](https://drive.google.com/file/d/1OXID4BRGgDsRDARxfElYsY5I1nyoqi2p/view?usp=sharing) covers the same ground in
 under eight minutes.
 
@@ -323,6 +327,13 @@ covers all four.
   other values. The race test exercises capacity 2 for exactly this reason.
 - One Postgres primary. The design relies on row locks being meaningful, which they are on a single
   primary and would not be across a multi-writer topology.
+- **The deployed app reaches Postgres through Supabase's poolers, not a direct connection.** R5.1
+  specifies direct `:5432` for migrations and the transaction pooler `:6543` for the app. Supabase's
+  free tier no longer resolves `db.<ref>.supabase.co`, so no IPv4 direct connection exists: the app
+  uses the transaction pooler as designed, and migrations and seeding use the *session* pooler on
+  `:5432` in its place. The decision behind the split is unchanged — the transaction path still
+  relies on no session state and no named prepared statements, which is what made it safe under
+  transaction pooling to begin with.
 - Timestamps are rendered in one fixed locale (Asia/Singapore).
 - **A rule I wrote was wrong, and the code that followed it leaked money.** My own
   `.claude/RULES.md` R2 said that on `ALREADY_CONFIRMED` and `BOOKING_NOT_ACTIVE` the confirm path
@@ -335,9 +346,10 @@ covers all four.
 
 ## What I deliberately cut
 
-- **Deploy to Vercel.** Cut to protect the verification work, which is what the brief actually
-  grades. Everything runs locally in five commands. The direct-vs-pooler connection split is still
-  documented in `.env.example` — the decision stands even though it is not exercised.
+- **~~Deploy to Vercel.~~** Originally cut to protect the verification work, then added once the
+  tests were done. It is live at <https://ottodot-trial-booking-ade-s-projects9.vercel.app>, on a Supabase
+  project in `ap-southeast-1`. The cut is left visible rather than deleted, because the reasoning
+  was sound and the order it implies — tests first, deployment second — is the one I followed.
 - **Authentication and roles.** The brief never asks for it. It would be a session table and
   middleware, and it would matter the moment a second family can see another family's children.
 - **A real payment provider.** Would need webhooks, idempotency keys and a reconciliation job. The
