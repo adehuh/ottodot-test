@@ -28,3 +28,6 @@ Ottodot_Full_Stack_Take_Home_Instructions*
 .vercel
 .env*
 !.env.example
+
+# external review notes, not part of the submission
+review.md
