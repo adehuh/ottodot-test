@@ -1,5 +1,8 @@
 # Ottodot Trial Booking
 
+**[Video walkthrough (7:54)](https://drive.google.com/file/d/1OXID4BRGgDsRDARxfElYsY5I1nyoqi2p/view?usp=sharing)** — the booking flow, a declined payment that rosters nobody,
+the race test running against real Postgres, and the lock-disabled proof.
+
 A trial-class booking system where the database is the only authority on whether a seat exists.
 Four seats per class, enforced by a row lock and a partial unique index rather than by application
 code — deleting every check in the React tree would degrade the experience and change nothing about
@@ -19,6 +22,9 @@ Then `npm run dev` and open <http://localhost:3000/book>.
 
 Requires Node 20.9+ (developed on 22.23) and Docker for the local Supabase stack. No cloud project
 is needed — everything runs locally.
+
+Prefer to watch rather than run it? The [video walkthrough](https://drive.google.com/file/d/1OXID4BRGgDsRDARxfElYsY5I1nyoqi2p/view?usp=sharing) covers the same ground in
+under eight minutes.
 
 ## The last-seat race
 
@@ -215,7 +221,7 @@ indefinitely without breaking an invariant — it reclaims and reports, it never
 ```bash
 npm test          # unit tests, no database
 npm run test:int  # integration tests against real Postgres
-npm run test:race # the race test and the lock-disabled proof, no file parallelism
+npm run test:race # the race test and the lock-disabled proof, named individually
 ```
 
 Integration tests never mock the database. A mock cannot exhibit write skew, so a mocked race test
@@ -287,7 +293,7 @@ rather add the assertion than make the claim.
 | Reviewing output, running `verify`, corrections | 1h 00m |
 | **Subtotal** | **3h 45m** |
 
-The video sits outside this figure.
+The [video](https://drive.google.com/file/d/1OXID4BRGgDsRDARxfElYsY5I1nyoqi2p/view?usp=sharing) sits outside this figure.
 
 The code figure is derived from `git log`: the sum of gaps between consecutive commits, counting
 only gaps of ten minutes or less and treating longer ones as review or idle. That is reproducible
